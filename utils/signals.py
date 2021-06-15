@@ -41,7 +41,7 @@ def complex_sinusoid(samp_rate, wave_ampl = 0.8, wave_freq = 1000):
     )  # since we have two channels to transmit, we tile tx_data
 
     # prepare the complex conjugate tx_data
-    tx_data = np.conjugate(tx_data)
+    tx_data = np.conjugate(tx_data) # take conjugate to satisfy the complex signal model for I/Q modulator and demodulator
 
     length_wave_one_period = wave_one_period.size
 

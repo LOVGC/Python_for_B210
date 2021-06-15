@@ -3,10 +3,18 @@ from uhd import libpyuhd as lib
 import numpy as np
 from threading import Thread
 
-class my_B210():
+
+
+class MyB210():
 ###################################################################################################################
 # Define some staticmethod in the class as utility functions
 ###################################################################################################################
+    # Class Attributes
+
+    # the number of samples of the baseband signal in one period:
+    # will affect the self.buffer size
+    LengthOnePeriod = 1000
+
     @staticmethod
     def estimate_amp(rx_buffer_one_channel):
         """
@@ -40,19 +48,28 @@ class my_B210():
 
         self.num_rx_samps : the number of rx samples in the self.rx_buffer
         self.rx_buffer : a 2 by self.num_rx_samps numpy array of complex64 numbers
-        """
-        self.transmit_flag = False  # used to kill the tx_thread when done
 
+        self.gain_table = {} : this gain_table stores the key-value pairs of {center_freq: [rxA_gain, rxB_gain]}
+        """
+
+        # construct some flags
+        self.transmit_flag = False  # used to kill the tx_thread when done
+        self.gain_table_updated_flag = False # only self.get_gains_for_all_freqs() and self.load_gain_table() can set it to True
 
         # the num_rx_samps
-        length_one_period = 1000
-        self.num_rx_samps =  10 * length_one_period
+        self.num_rx_samps =  10 * MyB210.LengthOnePeriod
+
+        # the sample rate of the baseband signal
+        self.samp_rate = samp_rate
 
         # construct the rx_buffer
         self.rx_buffer = np.zeros((2, self.num_rx_samps), dtype=np.complex64)
 
+        # construct the gain_table
         self.gain_table = {}   # this gain_table stores the key-value pairs of {center_freq: [rxA_gain, rxB_gain]}
 
+
+        # construct the tx_streamer and tx_streamer
         args = "type = b200"
 
         # create a usrp device and set up it with the device parameters defined above
@@ -107,7 +124,6 @@ class my_B210():
 
         self.tx_streamer = self.usrp.get_tx_stream(st_args)  # create tx streamer
         self.rx_streamer = self.usrp.get_rx_stream(st_args)  # create rx streamer
-
 
     def init_usrp_device_time(self):
         """
@@ -175,9 +191,11 @@ class my_B210():
 
     def stop_transmit(self):
         self.transmit_flag = False
+        print("Stop Transmit")
 
     def recv_and_save_data(self, rx_buffer, num_rx_samps, rx_md = lib.types.rx_metadata()):
         """
+        This method fetches the rx data from the hardware into the rx_buffer provided by the user.
 
         :param rx_buffer: should be an numpy array with dimension 2 by num_rx_samps, where
                         1) the elements are of type complex64 and 2) the first row of I/Q data is
@@ -229,7 +247,7 @@ class my_B210():
         # the following is a simple tuning algorithm
         # loop init
         self.recv_and_save_data(self.rx_buffer, self.num_rx_samps)  # receive data
-        estimated_amp = my_B210.estimate_amp(self.rx_buffer[channel])  # get estimated_amp of the channel
+        estimated_amp = MyB210.estimate_amp(self.rx_buffer[channel])  # get estimated_amp of the channel
 
         while not (
                 estimated_amp >= target_rx_amp - amp_tolerence
@@ -273,7 +291,7 @@ class my_B210():
 
             # update the rx_buffer for next loop
             self.recv_and_save_data(self.rx_buffer, self.num_rx_samps)  # receive data
-            estimated_amp = my_B210.estimate_amp(self.rx_buffer[channel])  # get estimated_amp of the channel
+            estimated_amp = MyB210.estimate_amp(self.rx_buffer[channel])  # get estimated_amp of the channel
 
 
         # when it is outside the loop, the amp should be within the range
@@ -286,10 +304,10 @@ class my_B210():
 
         return good_rx_gain
 
-
     def get_gains_for_all_freqs(self, center_freqs, txA_gain, txB_gain, target_rxA_amp, target_rxB_amp, amp_tolerence):
         """
         This method get good gains for all freqs
+        Then, set the self.gain_table_updated_flag to True
 
         :param center_freqs: [f1, f2, f3, ...], a list a center freqs that you want to tune the rx gain for
         :param txA_gain: 0 to 89.8dB
@@ -299,6 +317,7 @@ class my_B210():
         :param amp_tolerence: a small positive number, like 0.2, 0.3
         :return: stores the good gains in the gain table
         """
+
         for f in center_freqs:
             # get the good rx gain for rxA
             good_rxA_gain = self._get_gain_for_one_channel_one_center_freq(0, f, txA_gain, target_rxA_amp, amp_tolerence)
@@ -306,4 +325,87 @@ class my_B210():
 
             # store the gain table
             self.gain_table[f] = [good_rxA_gain, good_rxB_gain]
+
+        self.gain_table_updated_flag = True
+
+    def save_gain_table(self, file_name):
+        """
+        file_name: string, the file name
+        This method save the current self.gain_table into a file in utils for later use
+        The file will be overwritten if it exists
+        """
+        np.save('./utils/gain_tables/{}.npy'.format(file_name), self.gain_table)
+        print('gain table is saved into ./utils/gain_tables/{}.npy'.format(file_name))
+
+    def load_gain_table(self, file_name):
+        """
+        file_name: string, the gain table name without postfix
+
+        load a gain table into self.gain_table for use
+        :return:
+        """
+        self.gain_table = np.load('./utils/gain_tables/{}.npy'.format(file_name),allow_pickle='TRUE').item()
+        if type(self.gain_table) is not dict:
+            raise Exception('gain table should be a python dictionary object')
+
+        self.gain_table_updated_flag = True
+        print('successfully loading ./utils/gain_tables/{}.npy into self.gain_table'.format(file_name))
+
+    ###############################################################################################
+    #  The following sections are for performing the SFCW radar function: an application program
+    ################################################################################################
+
+    def sfcw_seep(self, tx_data, center_freqs, txA_gain, txB_gain):
+        """
+        This method performs the sfcw sweep at one survey location, using the txA_gain and txB_gain as the
+        transmit gains and self.gain_table as the rx gains.
+
+        :param tx_data : the tx baseband signal
+        :param center_freqs: the center_freqs at which you want to sweep
+        :param txA_gain: channel A transmit gain
+        :param txB_gain: channel B transmit gain
+        :return: sfcw_rx_signal, center_freqs
+            the received baseband signals obtained by using the txA_gain and txB_gain as the
+            transmit gains and self.gain_table as the rx gains at each center_freq.
+
+            the data structure looks like
+            sfcw_rx_signal = a list of
+                <a 2 by self.num_rx_samps numpy array of complex64 numbers; with the first row for rxA I/Q data and the second row for rxB I/Q data  >
+                           = [rx_data at the first freq, rx_data at the second freq, ... ]
+
+            center_freqs = [first_freq, second_freq, ...]
+
+        """
+        if not self.gain_table_updated_flag:
+            raise Exception('Gain table is not updated')
+
+        # prepare transmit data
+
+        # set the tx gains
+        self.usrp.set_tx_gain(txA_gain, 0)
+        self.usrp.set_tx_gain(txB_gain, 1)
+        # turn on the thread_send_data
+        self.thread_send_data(tx_data)
+
+        # loop through the center_freqs
+        #      1. set rx gains
+        #      2. tune center freq
+        #      3. receive data and save data
+
+        sfcw_rx_signal = []
+        for f in center_freqs:
+            # 1. set rx gains
+            self.usrp.set_rx_gain(self.gain_table[f][0], 0)  # set rxA gain
+            self.usrp.set_rx_gain(self.gain_table[f][1], 1)   # set rxB gain
+            # 2. tune center freq
+            self.tune_center_freq(f)
+            # 3. receive data
+            self.recv_and_save_data(self.rx_buffer, self.num_rx_samps)
+            self.rx_buffer = np.conjugate(self.rx_buffer) # take conjugate to satisfy the complex signal model for I/Q modulator and demodulator
+            # 4. store rx data into sfcw_rx_signal
+            sfcw_rx_signal.append(self.rx_buffer)
+
+        self.stop_transmit()  # stop the transmitter
+
+        return sfcw_rx_signal, center_freqs
 

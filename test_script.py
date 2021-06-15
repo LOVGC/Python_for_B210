@@ -1,6 +1,6 @@
 # implement state machine using Python
 
-from utils.my_B210 import my_B210
+from utils.MyB210 import MyB210
 from utils.signals import complex_sinusoid
 from radar_parameters import *
 import numpy as np
@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 # prepare tx data
 tx_data, length_wave_one_period = complex_sinusoid(samp_rate)
 
-B210 = my_B210(samp_rate, master_clock_rate, tx_bandwidth, rx_bandwidth)
+# construct the hardware object
+B210 = MyB210(samp_rate, master_clock_rate, tx_bandwidth, rx_bandwidth)
 
 B210.init_usrp_device_time()
 B210.set_gains([50, 50], [0, 0])
@@ -26,7 +27,7 @@ target_rxA_amp = 0.6
 target_rxB_amp = 0.6
 amp_tolerence = 0.02
 
-#B210.get_gains_for_all_freqs(center_freqs, txA_gain, txB_gain, target_rxA_amp, target_rxB_amp, amp_tolerence)
+B210.get_gains_for_all_freqs(center_freqs, txA_gain, txB_gain, target_rxA_amp, target_rxB_amp, amp_tolerence)
 
 # select one frequency and plot the rx signal
 test_center_freq =  610000000.0
