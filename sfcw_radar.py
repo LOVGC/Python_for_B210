@@ -8,8 +8,8 @@ import time
 import scipy.io
 import os
 # get gain table name
-gain_table_name = raw_input("Enter the gain table name that you want to load: ")
-sfcw_rx_signal_name = raw_input("Enter the file name for the sfcw_rx_signal: ")
+gain_table_name = input("Enter the gain table name that you want to load: ")
+sfcw_rx_signal_name = input("Enter the file name for the sfcw_rx_signal: ")
 
 # prepare data
 tx_data, length_wave_one_period = complex_sinusoid(samp_rate)
@@ -38,7 +38,6 @@ with open(file_path,'wb') as f:  # need 'wb' in Python3
     scipy.io.savemat(f, {"channel_data_{}".format(sfcw_rx_signal_name): sfcw_rx_signal} )
     scipy.io.savemat(f, {"center_freqs": center_freqs})
 
-# Beep when finish
 # Beep when finish
 duration = 0.3  # second
 freq = 440

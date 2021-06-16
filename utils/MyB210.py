@@ -401,9 +401,9 @@ class MyB210():
             self.tune_center_freq(f)
             # 3. receive data
             self.recv_and_save_data(self.rx_buffer, self.num_rx_samps)
-            self.rx_buffer = np.conjugate(self.rx_buffer) # take conjugate to satisfy the complex signal model for I/Q modulator and demodulator
             # 4. store rx data into sfcw_rx_signal
-            sfcw_rx_signal.append(self.rx_buffer)
+            rx_buffer_copy = np.copy(self.rx_buffer)  # need to copy the buffer, otherwise, all the appended signals are the same
+            sfcw_rx_signal.append(np.conjugate(rx_buffer_copy))  # take conjugate to satisfy the complex signal model using I/Q modulator and demodulator
 
         self.stop_transmit()  # stop the transmitter
 

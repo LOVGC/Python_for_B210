@@ -5,7 +5,7 @@ from utils.signals import complex_sinusoid
 import time
 
 # get gain table name
-gain_table_name = raw_input("Enter the gain table name: ")
+gain_table_name = input("Enter the gain table name: ")
 
 # prepare data
 tx_data, length_wave_one_period = complex_sinusoid(samp_rate)
